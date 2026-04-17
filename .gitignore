@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.env
+tracer_app/uploads/*
+!tracer_app/uploads/.gitkeep
+__MACOSX/

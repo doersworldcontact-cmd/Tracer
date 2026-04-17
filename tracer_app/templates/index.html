@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Tracer for DigiKit — Invisible Watermark Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+
+<style>
+/* ─────────────────────────────────────────────────────────────
+   RESET & TOKENS
+───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Dual-tone palette */
+  --ivory:      #F5F1E9;
+  --ivory-mid:  #EDE8DE;
+  --ivory-dark: #DDD7CA;
+  --ink:        #1A1712;
+  --ink-soft:   #2E2B26;
+  --ink-muted:  #6B6560;
+  --ink-faint:  #9E9891;
+
+  /* Panel tones */
+  --panel-bg:   #FFFFFF;
+  --border:     #E4DDD3;
+  --border-mid: #CBC3B8;
+
+  /* Accent A — Cerulean (Embed) */
+  --blue:       #1A52D4;
+  --blue-lt:    #3567E8;
+  --blue-pale:  #EEF3FD;
+  --blue-mid:   #C5D5F7;
+
+  /* Accent B — Amber (Decode) */
+  --amber:      #B8731A;
+  --amber-lt:   #D4891E;
+  --amber-pale: #FDF5E8;
+  --amber-mid:  #F2D49A;
+
+  /* Utility */
+  --green:      #1A7A4A;
+  --green-pale: #EBF5EF;
+  --red:        #C0392B;
+  --red-pale:   #FDECEB;
+
+  --shadow-sm:  0 1px 3px rgba(26,23,18,.06), 0 1px 2px rgba(26,23,18,.04);
+  --shadow-md:  0 4px 16px rgba(26,23,18,.08), 0 2px 6px rgba(26,23,18,.05);
+  --shadow-lg:  0 12px 40px rgba(26,23,18,.12), 0 4px 12px rgba(26,23,18,.07);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background-color: var(--ivory);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle parchment texture overlay */
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23noise)' opacity='0.025'/%3E%3C/svg%3E");
+  opacity: .5;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HEADER
+───────────────────────────────────────────────────────────── */
+header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(245,241,233,.92);
+  backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-inner {
+  max-width: 1200px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px; height: 68px;
+}
+
+.logo-wrap { display: flex; align-items: baseline; gap: 14px; }
+
+.logo-mark {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 26px; font-weight: 700;
+  letter-spacing: 0.06em; color: var(--ink);
+  line-height: 1;
+}
+
+.logo-sep {
+  width: 1px; height: 18px; background: var(--border-mid);
+  align-self: center; flex-shrink: 0;
+}
+
+.logo-by {
+  font-size: 11px; font-weight: 500; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-muted);
+  align-self: center;
+}
+
+.header-right {
+  display: flex; align-items: center; gap: 20px;
+}
+
+.header-tags {
+  display: flex; gap: 6px;
+}
+
+.htag {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+  text-transform: uppercase; padding: 4px 9px;
+  border-radius: 3px; border: 1px solid var(--border-mid);
+  color: var(--ink-faint);
+  background: transparent;
+}
+
+.live-pill {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 500; color: var(--green);
+}
+
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   INTRO STRIP
+───────────────────────────────────────────────────────────── */
+.intro-strip {
+  position: relative; z-index: 1;
+  max-width: 1200px; margin: 0 auto;
+  padding: 52px 32px 40px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px;
+}
+
+.intro-left { display: flex; flex-direction: column; }
+
+.intro-eyebrow {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-muted);
+  margin-bottom: 10px;
+}
+
+.intro-h1 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: clamp(2rem, 3.8vw, 3rem);
+  font-weight: 700; line-height: 1.08;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+
+.intro-h1 em {
+  font-style: italic; color: var(--blue);
+}
+
+.intro-right {
+  max-width: 340px; flex-shrink: 0;
+}
+
+.intro-desc {
+  font-size: 13px; line-height: 1.75; color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.intro-divider {
+  max-width: 1200px; margin: 0 auto;
+  padding: 0 32px;
+  display: flex; align-items: center; gap: 0;
+}
+
+.intro-rule { flex: 1; height: 1px; background: var(--border); }
+
+.intro-rule-label {
+  padding: 0 16px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--ivory-dark);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   WORKSPACE
+───────────────────────────────────────────────────────────── */
+.workspace {
+  position: relative; z-index: 1;
+  max-width: 1200px; margin: 0 auto;
+  padding: 28px 32px 80px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: 1fr; }
+  .intro-strip { flex-direction: column; align-items: flex-start; }
+  .intro-right { max-width: 100%; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PANEL
+───────────────────────────────────────────────────────────── */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow .25s;
+}
+
+.panel:hover { box-shadow: var(--shadow-lg); }
+
+/* Panel accent bar at top */
+.panel-accent-bar {
+  height: 3px; width: 100%;
+}
+
+.panel--embed .panel-accent-bar { background: var(--blue); }
+.panel--decode .panel-accent-bar { background: var(--amber); }
+
+.panel-header {
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-between;
+}
+
+.panel-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 48px; font-weight: 600; line-height: 1;
+  opacity: 0.06; user-select: none;
+  letter-spacing: -0.02em;
+}
+
+.panel--embed .panel-num  { color: var(--blue); }
+.panel--decode .panel-num { color: var(--amber); }
+
+.panel-meta { display: flex; flex-direction: column; }
+
+.panel-label {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; margin-bottom: 4px;
+}
+
+.panel--embed  .panel-label { color: var(--blue); }
+.panel--decode .panel-label { color: var(--amber); }
+
+.panel-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px; font-weight: 700;
+  color: var(--ink); line-height: 1.1;
+}
+
+.panel-subtitle {
+  font-size: 12px; color: var(--ink-muted); margin-top: 4px;
+  font-weight: 400; line-height: 1.5;
+}
+
+.panel-body {
+  padding: 24px 28px;
+  display: flex; flex-direction: column; gap: 20px;
+  flex: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   DROP ZONE
+───────────────────────────────────────────────────────────── */
+.drop-zone {
+  position: relative;
+  border-radius: 4px;
+  padding: 28px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: background .2s, border-color .2s;
+  /* Dashed border via SVG background */
+  background-color: var(--ivory);
+  background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='4' ry='4' stroke='%23CBC3B8' stroke-width='1.5' stroke-dasharray='6%2c 5' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+}
+
+.panel--embed  .drop-zone:hover,
+.panel--embed  .drop-zone.drag-over {
+  background-color: var(--blue-pale);
+  background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='4' ry='4' stroke='%231A52D4' stroke-width='1.5' stroke-dasharray='6%2c 5' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+}
+
+.panel--decode .drop-zone:hover,
+.panel--decode .drop-zone.drag-over {
+  background-color: var(--amber-pale);
+  background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='4' ry='4' stroke='%23B8731A' stroke-width='1.5' stroke-dasharray='6%2c 5' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+}
+
+.drop-zone input[type=file] {
+  position: absolute; inset: 0; opacity: 0;
+  cursor: pointer; width: 100%; height: 100%;
+}
+
+.drop-icon-wrap {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--border-mid);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 11px; background: var(--panel-bg);
+  transition: border-color .2s;
+}
+
+.panel--embed .drop-zone:hover  .drop-icon-wrap { border-color: var(--blue); }
+.panel--decode .drop-zone:hover .drop-icon-wrap { border-color: var(--amber); }
+
+.drop-icon-wrap svg {
+  width: 17px; height: 17px;
+  stroke: var(--ink-muted);
+  transition: stroke .2s;
+}
+
+.panel--embed .drop-zone:hover  .drop-icon-wrap svg { stroke: var(--blue); }
+.panel--decode .drop-zone:hover .drop-icon-wrap svg { stroke: var(--amber); }
+
+.drop-title {
+  font-size: 13px; font-weight: 500;
+  color: var(--ink); margin-bottom: 3px;
+}
+
+.drop-sub {
+  font-size: 11px; color: var(--ink-faint);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   IMAGE PREVIEW
+───────────────────────────────────────────────────────────── */
+.preview-wrap {
+  display: none; position: relative;
+  border-radius: 4px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.preview-wrap.visible { display: block; }
+
+.preview-wrap img {
+  width: 100%; display: block;
+  max-height: 200px; object-fit: cover;
+}
+
+.preview-badge {
+  position: absolute; top: 8px; right: 8px;
+  padding: 3px 8px; border-radius: 2px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(245,241,233,.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border); color: var(--ink-muted);
+}
+
+/* Scan overlay */
+.scan-overlay {
+  position: absolute; inset: 0;
+  display: none; align-items: center; justify-content: center;
+  flex-direction: column; gap: 10px;
+  background: rgba(245,241,233,.75);
+  backdrop-filter: blur(3px); z-index: 5;
+}
+
+.scan-overlay.active { display: flex; }
+
+.scan-line {
+  position: absolute; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--amber) 40%, var(--amber) 60%, transparent 100%);
+  animation: scan 1.6s cubic-bezier(.4,0,.6,1) infinite;
+  box-shadow: 0 0 8px rgba(184,115,26,.6);
+}
+
+@keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+
+.scan-text {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--amber); z-index: 1;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SECTION LABEL (replaces .divider)
+───────────────────────────────────────────────────────────── */
+.section-label {
+  display: flex; align-items: center; gap: 10px;
+}
+
+.section-label::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+.section-label span {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   FORM
+───────────────────────────────────────────────────────────── */
+.form-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  border: 1px solid var(--border); border-radius: 4px;
+  overflow: hidden;
+}
+
+.field {
+  display: flex; flex-direction: column;
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transition: background .15s;
+}
+
+.field:nth-child(even) { border-right: none; }
+
+/* Last row — remove bottom border */
+.field:nth-last-child(-n+2) { border-bottom: none; }
+/* If last row has 1 item, remove its right border too */
+.field:last-child:nth-child(odd) { border-right: none; grid-column: 1 / -1; }
+
+.field label {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--ink-faint);
+  margin-bottom: 5px; display: flex; align-items: center; gap: 4px;
+  user-select: none;
+}
+
+.field label .req { color: var(--blue); font-size: 11px; line-height: 1; }
+
+.field input {
+  background: transparent; border: none; outline: none;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px; font-weight: 500; color: var(--ink);
+  width: 100%; padding: 0;
+  transition: color .15s;
+}
+
+.field input::placeholder { color: var(--ink-faint); font-weight: 400; }
+
+.panel--embed .field:focus-within  { background: var(--blue-pale); }
+.panel--decode .field:focus-within { background: var(--amber-pale); }
+
+.char-hint {
+  font-size: 9px; color: var(--ink-faint);
+  text-align: right; margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   INFO TAGS
+───────────────────────────────────────────────────────────── */
+.info-strip {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+
+.info-pill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 2px;
+  border: 1px solid var(--border);
+  font-size: 10px; color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.info-pill svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+/* ─────────────────────────────────────────────────────────────
+   BUTTONS
+───────────────────────────────────────────────────────────── */
+.btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px 20px; border-radius: 4px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.03em;
+  cursor: pointer; border: none; width: 100%;
+  transition: opacity .15s, transform .15s, box-shadow .15s;
+  position: relative; overflow: hidden;
+}
+
+.btn::after {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(255,255,255,0);
+  transition: background .15s;
+}
+
+.btn:hover::after { background: rgba(255,255,255,.08); }
+
+.btn:active { transform: translateY(1px); }
+
+.btn:disabled {
+  opacity: .38; cursor: not-allowed; transform: none;
+}
+
+.btn:disabled::after { display: none; }
+
+.btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+.btn-primary {
+  background: var(--blue); color: #fff;
+  box-shadow: 0 2px 8px rgba(26,82,212,.25);
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 4px 18px rgba(26,82,212,.38);
+}
+
+.btn-decode {
+  background: var(--amber); color: #fff;
+  box-shadow: 0 2px 8px rgba(184,115,26,.25);
+}
+
+.btn-decode:hover:not(:disabled) {
+  box-shadow: 0 4px 18px rgba(184,115,26,.38);
+}
+
+/* Spinner */
+.spinner {
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.25);
+  border-top-color: #fff;
+  animation: spin .65s linear infinite;
+  display: none; flex-shrink: 0;
+}
+
+.btn.loading .spinner { display: block; }
+.btn.loading .btn-label { display: none; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─────────────────────────────────────────────────────────────
+   DOWNLOAD BANNER
+───────────────────────────────────────────────────────────── */
+.dl-banner {
+  display: none;
+  border: 1px solid #B8E0C8;
+  border-radius: 4px;
+  background: var(--green-pale);
+  padding: 14px 16px;
+  align-items: center; justify-content: space-between; gap: 12px;
+}
+
+.dl-banner.visible { display: flex; }
+
+.dl-info { display: flex; align-items: center; gap: 10px; }
+
+.dl-check {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid #B8E0C8;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--green); flex-shrink: 0;
+}
+
+.dl-check svg { width: 14px; height: 14px; }
+
+.dl-text strong {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--green); letter-spacing: 0.02em;
+}
+
+.dl-text span { font-size: 11px; color: var(--ink-muted); }
+
+.btn-dl {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 3px;
+  background: var(--green); color: #fff;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px; font-weight: 600;
+  border: none; cursor: pointer; text-decoration: none;
+  white-space: nowrap; transition: opacity .15s;
+}
+
+.btn-dl:hover { opacity: .88; }
+.btn-dl svg { width: 13px; height: 13px; }
+
+/* ─────────────────────────────────────────────────────────────
+   ERROR CARD
+───────────────────────────────────────────────────────────── */
+.error-card {
+  background: var(--red-pale);
+  border: 1px solid #F0B8B3;
+  border-radius: 4px;
+  padding: 12px 14px;
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 12px; color: var(--red); line-height: 1.5;
+}
+
+.error-card svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+
+/* ─────────────────────────────────────────────────────────────
+   RESULT CARD
+───────────────────────────────────────────────────────────── */
+.result-card {
+  display: none;
+  border: 1px solid var(--border); border-radius: 4px;
+  overflow: hidden;
+  animation: revealUp .35s cubic-bezier(.16,1,.3,1);
+}
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.result-card.visible { display: block; }
+
+.result-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  background: var(--amber-pale);
+  border-bottom: 1px solid var(--amber-mid);
+}
+
+.result-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.result-dot.green { background: var(--green); box-shadow: 0 0 0 2px rgba(26,122,74,.2); }
+.result-dot.red   { background: var(--red);   box-shadow: 0 0 0 2px rgba(192,57,43,.2); }
+
+.result-title {
+  font-size: 12px; font-weight: 600; color: var(--amber);
+  letter-spacing: 0.04em;
+}
+
+.result-subtitle {
+  margin-left: auto; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--ink-faint);
+}
+
+.meta-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  border-top: none;
+}
+
+.meta-item {
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.meta-item:nth-child(even) { border-right: none; }
+.meta-item:nth-last-child(-n+2) { border-bottom: none; }
+.meta-item:last-child:nth-child(odd) { border-right: none; grid-column: 1/-1; }
+
+.meta-item.full { grid-column: 1/-1; border-right: none; border-bottom: none; }
+
+.meta-label {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px;
+}
+
+.meta-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; font-weight: 500; color: var(--ink);
+  word-break: break-word;
+}
+
+.meta-item.full .meta-value {
+  font-size: 12px; color: var(--ink-muted); font-weight: 400;
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HOW IT WORKS
+───────────────────────────────────────────────────────────── */
+.steps { display: flex; flex-direction: column; gap: 0; }
+
+.step {
+  display: flex; gap: 14px; align-items: flex-start;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.step:last-child { border-bottom: none; }
+
+.step-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px; font-weight: 600; line-height: 1;
+  color: var(--amber); flex-shrink: 0; min-width: 22px;
+}
+
+.step-body { display: flex; flex-direction: column; }
+
+.step-title {
+  font-size: 12px; font-weight: 600; color: var(--ink);
+  margin-bottom: 2px;
+}
+
+.step-desc {
+  font-size: 11px; color: var(--ink-muted); line-height: 1.6;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   TOAST
+───────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 28px; left: 50%;
+  transform: translateX(-50%) translateY(70px);
+  background: var(--ink); color: #F5F1E9;
+  border-radius: 3px; padding: 10px 18px;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+  box-shadow: var(--shadow-lg);
+  transition: transform .3s cubic-bezier(.16,1,.3,1);
+  z-index: 9999; pointer-events: none; white-space: nowrap;
+  display: flex; align-items: center; gap: 7px;
+}
+
+#toast .t-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0;
+}
+
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ─────────────────────────────────────────────────────────────
+   FOOTER
+───────────────────────────────────────────────────────────── */
+footer {
+  position: relative; z-index: 1;
+  border-top: 1px solid var(--border);
+  padding: 20px 32px;
+  max-width: 100%;
+}
+
+.footer-inner {
+  max-width: 1200px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.footer-left {
+  font-size: 11px; color: var(--ink-faint);
+}
+
+.footer-left strong { color: var(--ink-muted); font-weight: 600; }
+
+.footer-right {
+  display: flex; gap: 6px;
+}
+
+.ftag {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ivory-dark);
+  padding: 3px 7px; border: 1px solid var(--ivory-dark); border-radius: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SCROLLBAR
+───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--ivory); }
+::-webkit-scrollbar-thumb { background: var(--ivory-dark); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ─── HEADER ─────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <div class="logo-wrap">
+      <span class="logo-mark">Tracer</span>
+      <span class="logo-sep"></span>
+      <span class="logo-by">for DigiKit</span>
+    </div>
+    <div class="header-right">
+      <div class="header-tags">
+        <span class="htag">DWT · DCT · SVD</span>
+        <span class="htag">Steganography</span>
+      </div>
+      <div class="live-pill">
+        <span class="live-dot"></span>
+        Live
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ─── INTRO ──────────────────────────────────────────────── -->
+<section class="intro-strip">
+  <div class="intro-left">
+    <p class="intro-eyebrow">Invisible Watermark Engine</p>
+    <h1 class="intro-h1">
+      Protect every image.<br>
+      <em>Prove every claim.</em>
+    </h1>
+  </div>
+  <div class="intro-right">
+    <p class="intro-desc">
+      Tracer embeds a 1024-bit invisible watermark into campaign images using
+      frequency-domain encoding — imperceptible to the human eye, verifiable at any time.
+    </p>
+  </div>
+</section>
+
+<div class="intro-divider">
+  <div class="intro-rule"></div>
+  <span class="intro-rule-label">Tool</span>
+  <div class="intro-rule"></div>
+</div>
+
+<!-- ─── WORKSPACE ─────────────────────────────────────────── -->
+<main class="workspace">
+
+  <!-- ══════ EMBED PANEL ══════ -->
+  <div class="panel panel--embed">
+    <div class="panel-accent-bar"></div>
+    <div class="panel-header">
+      <div class="panel-meta">
+        <div class="panel-label">01 — Embed</div>
+        <div class="panel-title">Embed Watermark</div>
+        <div class="panel-subtitle">Encode campaign metadata invisibly into your image</div>
+      </div>
+      <div class="panel-num">01</div>
+    </div>
+
+    <div class="panel-body">
+
+      <!-- Drop zone -->
+      <div id="embedDrop" class="drop-zone" onclick="document.getElementById('embedFile').click()">
+        <input type="file" id="embedFile" accept="image/*" onchange="onEmbedFile(event)"/>
+        <div class="drop-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </div>
+        <div class="drop-title">Drop campaign image here</div>
+        <div class="drop-sub">PNG · JPG · WEBP &nbsp;·&nbsp; min 256 × 256 px</div>
+      </div>
+
+      <!-- Preview -->
+      <div id="embedPreview" class="preview-wrap">
+        <img id="embedImg" src="" alt="Preview"/>
+        <span class="preview-badge" id="embedDims">—</span>
+      </div>
+
+      <!-- Metadata form -->
+      <div class="section-label">
+        <span>Campaign Metadata</span>
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Agency <span class="req">*</span></label>
+          <input type="text" id="fCompany" value="DigiKit" maxlength="20" placeholder="DigiKit"
+            oninput="updateHint(this,'hCompany')"/>
+          <div class="char-hint" id="hCompany">7 / 20</div>
+        </div>
+        <div class="field">
+          <label>Client <span class="req">*</span></label>
+          <input type="text" id="fClient" maxlength="20" placeholder="e.g. Acme Corp"
+            oninput="updateHint(this,'hClient')"/>
+          <div class="char-hint" id="hClient">0 / 20</div>
+        </div>
+        <div class="field">
+          <label>Campaign</label>
+          <input type="text" id="fCampaign" maxlength="20" placeholder="e.g. Summer 2026"
+            oninput="updateHint(this,'hCampaign')"/>
+          <div class="char-hint" id="hCampaign">0 / 20</div>
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="fDate"/>
+        </div>
+        <div class="field">
+          <label>Time</label>
+          <input type="time" id="fTime"/>
+        </div>
+        <div class="field">
+          <label>Note</label>
+          <input type="text" id="fNote" maxlength="31" placeholder="Optional"
+            oninput="updateHint(this,'hNote')"/>
+          <div class="char-hint" id="hNote">0 / 31</div>
+        </div>
+      </div>
+
+      <!-- Info tags -->
+      <div class="info-strip">
+        <span class="info-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          1024-bit payload
+        </span>
+        <span class="info-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          Visually lossless
+        </span>
+        <span class="info-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          Noise resistant
+        </span>
+      </div>
+
+      <!-- CTA -->
+      <button class="btn btn-primary" id="embedBtn" onclick="doEmbed()" disabled>
+        <div class="spinner"></div>
+        <span class="btn-label" style="display:flex;align-items:center;gap:7px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Embed Watermark &amp; Download
+        </span>
+      </button>
+
+      <!-- Success banner -->
+      <div class="dl-banner" id="dlBanner">
+        <div class="dl-info">
+          <div class="dl-check">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <div class="dl-text">
+            <strong>Watermark Embedded</strong>
+            <span>1024-bit payload encoded invisibly</span>
+          </div>
+        </div>
+        <a id="dlLink" class="btn-dl" download="tracer_watermarked.png">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Save Image
+        </a>
+      </div>
+
+      <div id="embedError" style="display:none"></div>
+
+    </div>
+  </div>
+
+  <!-- ══════ DECODE PANEL ══════ -->
+  <div class="panel panel--decode">
+    <div class="panel-accent-bar"></div>
+    <div class="panel-header">
+      <div class="panel-meta">
+        <div class="panel-label">02 — Decode</div>
+        <div class="panel-title">Decode Watermark</div>
+        <div class="panel-subtitle">Reveal the hidden metadata inside any Tracer image</div>
+      </div>
+      <div class="panel-num">02</div>
+    </div>
+
+    <div class="panel-body">
+
+      <!-- Drop zone -->
+      <div id="decodeDrop" class="drop-zone" onclick="document.getElementById('decodeFile').click()">
+        <input type="file" id="decodeFile" accept="image/*" onchange="onDecodeFile(event)"/>
+        <div class="drop-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
+        <div class="drop-title">Drop watermarked image here</div>
+        <div class="drop-sub">Upload any image to scan for Tracer watermark</div>
+      </div>
+
+      <!-- Preview with scan overlay -->
+      <div id="decodePreview" class="preview-wrap">
+        <img id="decodeImg" src="" alt="Preview"/>
+        <span class="preview-badge" id="decodeDims">—</span>
+        <div class="scan-overlay" id="scanOverlay">
+          <div class="scan-line"></div>
+          <div class="scan-text">Scanning frequency layers…</div>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <button class="btn btn-decode" id="decodeBtn" onclick="doDecode()" disabled>
+        <div class="spinner"></div>
+        <span class="btn-label" style="display:flex;align-items:center;gap:7px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Scan for Watermark
+        </span>
+      </button>
+
+      <!-- Result -->
+      <div class="result-card" id="resultCard">
+        <div class="result-header">
+          <div class="result-dot green" id="resultDot"></div>
+          <span class="result-title" id="resultTitle">Tracer Watermark Detected</span>
+          <span class="result-subtitle" id="resultTime"></span>
+        </div>
+        <div class="meta-grid" id="metaGrid"></div>
+      </div>
+
+      <div id="decodeError" style="display:none"></div>
+
+      <!-- How it works -->
+      <div class="section-label" style="margin-top:auto">
+        <span>How it works</span>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            <div class="step-title">DWT Decomposition</div>
+            <div class="step-desc">Image is decomposed into frequency sub-bands via Discrete Wavelet Transform (Haar basis).</div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            <div class="step-title">DCT+SVD Bit Injection</div>
+            <div class="step-desc">1024 bits of metadata are encoded into singular values of DCT coefficient blocks.</div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            <div class="step-title">Invisible Output</div>
+            <div class="step-desc">Inverse transforms reconstruct a visually identical image — cryptographically marked.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<!-- ─── FOOTER ─────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-inner">
+    <span class="footer-left">
+      <strong>Tracer</strong> · Invisible Watermark Engine · &copy; 2026 <strong>DigiKit</strong>
+    </span>
+    <div class="footer-right">
+      <span class="ftag">DWT</span>
+      <span class="ftag">DCT</span>
+      <span class="ftag">SVD</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ─── TOAST ──────────────────────────────────────────────── -->
+<div id="toast"><span class="t-dot"></span><span id="toastMsg"></span></div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────
+let embedFile = null;
+let decodeFile = null;
+
+// ─── Utilities ────────────────────────────────────────────────
+function toast(msg, color='#F5F1E9') {
+  const el = document.getElementById('toast');
+  const dot = el.querySelector('.t-dot');
+  document.getElementById('toastMsg').textContent = msg;
+  dot.style.background = color;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.innerHTML = `<div class="error-card">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+      <line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    ${msg}
+  </div>`;
+}
+
+function clearError(id) {
+  const el = document.getElementById(id);
+  el.style.display = 'none';
+  el.innerHTML = '';
+}
+
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  btn.classList.toggle('loading', loading);
+  btn.disabled = loading;
+}
+
+function updateHint(inp, hintId) {
+  document.getElementById(hintId).textContent = `${inp.value.length} / ${inp.maxLength}`;
+}
+
+function formatDate(s) {
+  if (!s || s.length !== 8) return s;
+  return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+}
+
+function formatTime(s) {
+  if (!s || s.length < 6) return s;
+  return `${s.slice(0,2)}:${s.slice(2,4)}:${s.slice(4,6)}`;
+}
+
+// ─── Auto-fill today's date/time ──────────────────────────────
+(function () {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  document.getElementById('fDate').value =
+    `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  document.getElementById('fTime').value =
+    `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  updateHint(document.getElementById('fCompany'), 'hCompany');
+})();
+
+// ─── Drag & Drop ──────────────────────────────────────────────
+['embedDrop','decodeDrop'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
+  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+  el.addEventListener('drop', e => {
+    e.preventDefault(); el.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.type.startsWith('image/')) { toast('Please drop an image file', '#C0392B'); return; }
+    if (id === 'embedDrop') loadEmbedFile(file);
+    else loadDecodeFile(file);
+  });
+});
+
+// ─── File Loading ─────────────────────────────────────────────
+function loadEmbedFile(file) {
+  embedFile = file;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('embedImg');
+  img.onload = () => {
+    document.getElementById('embedDims').textContent = `${img.naturalWidth}×${img.naturalHeight}`;
+  };
+  img.src = url;
+  document.getElementById('embedPreview').classList.add('visible');
+  document.getElementById('embedBtn').disabled = false;
+  document.getElementById('dlBanner').classList.remove('visible');
+  clearError('embedError');
+  toast('Image loaded', '#1A7A4A');
+}
+
+function loadDecodeFile(file) {
+  decodeFile = file;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('decodeImg');
+  img.onload = () => {
+    document.getElementById('decodeDims').textContent = `${img.naturalWidth}×${img.naturalHeight}`;
+  };
+  img.src = url;
+  document.getElementById('decodePreview').classList.add('visible');
+  document.getElementById('decodeBtn').disabled = false;
+  document.getElementById('resultCard').classList.remove('visible');
+  clearError('decodeError');
+  toast('Image loaded', '#1A7A4A');
+}
+
+function onEmbedFile(e)  { if (e.target.files[0]) loadEmbedFile(e.target.files[0]); }
+function onDecodeFile(e) { if (e.target.files[0]) loadDecodeFile(e.target.files[0]); }
+
+// ─── Embed ────────────────────────────────────────────────────
+async function doEmbed() {
+  if (!embedFile) return;
+  clearError('embedError');
+  document.getElementById('dlBanner').classList.remove('visible');
+  setLoading('embedBtn', true);
+
+  const dVal = document.getElementById('fDate').value;
+  const dateRaw = dVal ? dVal.replace(/-/g,'') : '';
+  const tVal = document.getElementById('fTime').value;
+  const timeRaw = tVal ? (tVal.replace(/:/g,'') + '00').substring(0,6) : '';
+
+  const fd = new FormData();
+  fd.append('image',    embedFile);
+  fd.append('company',  document.getElementById('fCompany').value  || 'DigiKit');
+  fd.append('client',   document.getElementById('fClient').value);
+  fd.append('campaign', document.getElementById('fCampaign').value);
+  fd.append('date',     dateRaw);
+  fd.append('time',     timeRaw);
+  fd.append('note',     document.getElementById('fNote').value);
+
+  try {
+    const res = await fetch('/api/embed', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const j = await res.json();
+      throw new Error(j.error || `Server error ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.getElementById('dlLink');
+    link.href = url;
+    document.getElementById('dlBanner').classList.add('visible');
+    toast('Watermark embedded', '#1A7A4A');
+  } catch (err) {
+    showError('embedError', err.message);
+    toast('Embedding failed', '#C0392B');
+  } finally {
+    setLoading('embedBtn', false);
+    document.getElementById('embedBtn').disabled = false;
+  }
+}
+
+// ─── Decode ───────────────────────────────────────────────────
+async function doDecode() {
+  if (!decodeFile) return;
+  clearError('decodeError');
+  document.getElementById('resultCard').classList.remove('visible');
+  setLoading('decodeBtn', true);
+
+  const overlay = document.getElementById('scanOverlay');
+  overlay.classList.add('active');
+
+  const fd = new FormData();
+  fd.append('image', decodeFile);
+
+  try {
+    const res = await fetch('/api/decode', { method: 'POST', body: fd });
+    const json = await res.json();
+
+    if (!res.ok || json.error) {
+      throw new Error(json.error || `Server error ${res.status}`);
+    }
+
+    renderResult(json);
+    toast('Watermark decoded', '#B8731A');
+  } catch (err) {
+    showError('decodeError', err.message);
+    toast('Decode failed', '#C0392B');
+  } finally {
+    overlay.classList.remove('active');
+    setLoading('decodeBtn', false);
+    document.getElementById('decodeBtn').disabled = false;
+  }
+}
+
+function renderResult(data) {
+  const card = document.getElementById('resultCard');
+  document.getElementById('resultTime').textContent = new Date().toLocaleTimeString();
+
+  const fields = [
+    { key: 'company',  label: 'Agency',    full: false },
+    { key: 'client',   label: 'Client',    full: false },
+    { key: 'campaign', label: 'Campaign',  full: false },
+    { key: 'date',     label: 'Date',      full: false, fmt: formatDate },
+    { key: 'time',     label: 'Time',      full: false, fmt: formatTime },
+    { key: 'note',     label: 'Note',      full: true  },
+  ];
+
+  const grid = document.getElementById('metaGrid');
+  grid.innerHTML = fields.map(f => {
+    const raw = data[f.key] || '—';
+    const val = (f.fmt && raw !== '—') ? f.fmt(raw) : raw;
+    return `
+      <div class="meta-item${f.full ? ' full' : ''}">
+        <div class="meta-label">${f.label}</div>
+        <div class="meta-value">${val}</div>
+      </div>`;
+  }).join('');
+
+  card.classList.add('visible');
+}
+</script>
+</body>
+</html>
